@@ -1,45 +1,79 @@
 import Link from "next/link";
+import { fetchEngineJson, getEngineApiBaseUrl } from "@/lib/engine-api";
 
-type GatewayHealth = {
-  status: string;
-  framework_root: string;
-  framework_exists: boolean;
-  snapshot_count: number;
-  latest_snapshot: string | null;
+type OperatorStatusResponse = {
+  knowledge_revision: string;
+  bundle: {
+    bundle_version: string;
+    source_commit: string | null;
+    created_at: string | null;
+  };
+  latest_workflow_run: {
+    run_id: string;
+    generated_at: string | null;
+    step_count: number;
+    status_counts: Record<string, number>;
+  } | null;
+  refresh_queues: {
+    refresh_queue: {
+      queue_count: number;
+      generated_at: string | null;
+      priority_counts: Record<string, number>;
+    };
+    event_queue: {
+      queue_count: number;
+      generated_at: string | null;
+    };
+    node_watch_queue: {
+      queue_count: number;
+      generated_at: string | null;
+      priority_counts: Record<string, number>;
+    };
+    company_freshness: {
+      company_count: number;
+      needs_refresh_count: number;
+      generated_at: string | null;
+    };
+  };
+  review_queue: {
+    queue_count: number;
+    generated_at: string | null;
+    decision_count: number;
+    latest_reviewed_at: string | null;
+  };
+  bottlenecks: {
+    active_count: number;
+    binding_count: number;
+    latest_assessed_at: string | null;
+  };
+  routing: {
+    entry_count: number;
+    open_count: number;
+    latest_created_at: string | null;
+  };
 };
-
-type KpiListResponse = {
-  snapshot: string;
-  count: number;
-};
-
-async function fetchGatewayData<T>(url: string): Promise<T> {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Gateway request failed (${response.status})`);
-  }
-  return response.json();
-}
 
 export default async function ResearchGatewayStatusPage() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+  const apiBaseUrl = getEngineApiBaseUrl();
 
-  let health: GatewayHealth | null = null;
-  let kpis: KpiListResponse | null = null;
+  let status: OperatorStatusResponse | null = null;
   let error: string | null = null;
 
   try {
-    health = await fetchGatewayData<GatewayHealth>(`${apiBaseUrl}/health`);
-    kpis = await fetchGatewayData<KpiListResponse>(
-      `${apiBaseUrl}/api/research/kpis?snapshot=latest`,
+    const { response, payload } = await fetchEngineJson<OperatorStatusResponse>(
+      "/v1/operator/status",
     );
+    if (!response.ok) {
+      throw new Error(`Engine request failed (${response.status})`);
+    }
+    status = payload;
   } catch (err) {
-    error = err instanceof Error ? err.message : "Unknown gateway error";
+    error = err instanceof Error ? err.message : "Unknown engine error";
   }
 
   return (
     <main style={{ maxWidth: 900, margin: "40px auto", padding: "0 24px" }}>
-      <h1>Research Gateway Status</h1>
+      <h1>Operator Status</h1>
       <p>
         API base URL: <code>{apiBaseUrl}</code>
       </p>
@@ -49,26 +83,34 @@ export default async function ResearchGatewayStatusPage() {
           <h2>Connection Error</h2>
           <p>{error}</p>
           <p>
-            Make sure backend gateway is running:
+            Make sure the engine API is running:
             <br />
-            <code>
-              python3 -m uvicorn gateway.research_gateway:app --host 127.0.0.1 --port 8000
-            </code>
+            <code>python3 -m uvicorn engine_api.app:app --host 127.0.0.1 --port 8000</code>
           </p>
         </section>
       ) : (
         <section>
           <h2>Connected</h2>
-          <p>Status: {health?.status}</p>
-          <p>Framework path: {health?.framework_root}</p>
-          <p>Latest snapshot: {health?.latest_snapshot}</p>
-          <p>Total snapshots: {health?.snapshot_count}</p>
-          <p>KPIs in latest snapshot: {kpis?.count}</p>
-          <p>Snapshot used for KPIs: {kpis?.snapshot}</p>
+          <p>Knowledge revision: {status?.knowledge_revision}</p>
+          <p>Bundle version: {status?.bundle.bundle_version}</p>
+          <p>Bundle commit: {status?.bundle.source_commit ?? "n/a"}</p>
+          <p>Bundle created at: {status?.bundle.created_at ?? "n/a"}</p>
+          <p>Latest workflow run: {status?.latest_workflow_run?.run_id ?? "n/a"}</p>
+          <p>Latest workflow generated at: {status?.latest_workflow_run?.generated_at ?? "n/a"}</p>
+          <p>Workflow steps: {status?.latest_workflow_run?.step_count ?? 0}</p>
+          <p>Refresh queue count: {status?.refresh_queues.refresh_queue.queue_count ?? 0}</p>
+          <p>Event queue count: {status?.refresh_queues.event_queue.queue_count ?? 0}</p>
+          <p>Node watch queue count: {status?.refresh_queues.node_watch_queue.queue_count ?? 0}</p>
+          <p>Companies needing refresh: {status?.refresh_queues.company_freshness.needs_refresh_count ?? 0}</p>
+          <p>Review queue count: {status?.review_queue.queue_count ?? 0}</p>
+          <p>Review decisions recorded: {status?.review_queue.decision_count ?? 0}</p>
+          <p>Bottlenecks active: {status?.bottlenecks.active_count ?? 0}</p>
+          <p>Routing entries: {status?.routing.entry_count ?? 0}</p>
+          <p>Routing open: {status?.routing.open_count ?? 0}</p>
           <p>
             Try API directly:{" "}
-            <a href={`${apiBaseUrl}/api/research/kpis?snapshot=latest`} target="_blank">
-              /api/research/kpis?snapshot=latest
+            <a href={`${apiBaseUrl}/v1/operator/status`} target="_blank">
+              /v1/operator/status
             </a>
           </p>
         </section>
