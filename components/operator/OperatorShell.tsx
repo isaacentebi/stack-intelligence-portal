@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 const NAV_ITEMS = [
@@ -13,15 +13,28 @@ const NAV_ITEMS = [
   { href: "/operator/routing", label: "Routing" },
 ];
 
-export function OperatorShell({ children }: { children: ReactNode }) {
+export function OperatorShell({
+  children,
+  operatorEmail,
+}: {
+  children: ReactNode;
+  operatorEmail: string;
+}) {
   const pathname = usePathname();
   const router = useRouter();
+  const [signingOut, setSigningOut] = useState(false);
 
-  function handleSignOut() {
-    sessionStorage.removeItem("operator_auth");
-    sessionStorage.removeItem("investor_auth");
-    router.push("/operator/login");
-    router.refresh();
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await fetch("/api/operator/session/logout", {
+        method: "POST",
+      });
+    } finally {
+      router.push("/operator/login");
+      router.refresh();
+      setSigningOut(false);
+    }
   }
 
   return (
@@ -57,13 +70,14 @@ export function OperatorShell({ children }: { children: ReactNode }) {
               <div style={{ fontSize: 12, letterSpacing: "0.08em", color: "#736a5f" }}>OPERATOR</div>
               <div style={{ fontSize: 28, fontWeight: 700 }}>Stack Intelligence Operator</div>
               <div style={{ fontSize: 13, color: "#736a5f", marginTop: 4 }}>
-                Canonical operator routes now live under <code>/operator</code>. Legacy research-dashboard operator
-                URLs redirect here during transition.
+                Signed in as <code>{operatorEmail}</code>. Legacy research-dashboard operator URLs redirect here during
+                transition.
               </div>
             </div>
             <button
               type="button"
               onClick={handleSignOut}
+              disabled={signingOut}
               style={{
                 border: "1px solid #cfc4b0",
                 borderRadius: 999,
@@ -72,7 +86,7 @@ export function OperatorShell({ children }: { children: ReactNode }) {
                 cursor: "pointer",
               }}
             >
-              Sign out
+              {signingOut ? "Signing Out…" : "Sign out"}
             </button>
           </div>
 

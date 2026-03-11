@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchEngineJson } from "@/lib/engine-api";
+import { requireOperatorApiSession } from "@/lib/operator-api-auth";
 
 export const runtime = "nodejs";
 
@@ -7,6 +8,11 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ proposalKey: string }> },
 ) {
+  const { unauthorized } = await requireOperatorApiSession();
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const { proposalKey } = await params;
   const body = await request.json();
 

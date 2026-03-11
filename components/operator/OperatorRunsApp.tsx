@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type WorkflowRun = {
   run_id: string;
   workflow_key: string;
   generated_at: string | null;
+  requested_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  requested_by?: string | null;
   status: string;
   step_count: number;
   status_counts: Record<string, number>;
@@ -26,75 +30,122 @@ export function OperatorRunsApp() {
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [commandState, setCommandState] = useState<string | null>(null);
+
+  const loadRun = useCallback(async (runId: string, cancelled = false) => {
+    const response = await fetch(`/api/operator/workflows/runs/${encodeURIComponent(runId)}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(`Workflow run request failed (${response.status})`);
+    }
+    const payload = (await response.json()) as WorkflowRun;
+    if (!cancelled) {
+      setSelectedRun(payload);
+    }
+  }, []);
+
+  const loadRuns = useCallback(async (cancelled = false) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/operator/workflows/runs?limit=20", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`Workflow runs request failed (${response.status})`);
+      }
+      const payload = (await response.json()) as WorkflowRunList;
+      if (!cancelled) {
+        setRuns(payload.runs);
+        const nextRunId = selectedRun?.run_id ?? payload.runs[0]?.run_id;
+        if (nextRunId) {
+          await loadRun(nextRunId, cancelled);
+        } else {
+          setSelectedRun(null);
+        }
+      }
+    } catch (err) {
+      if (!cancelled) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+      }
+    } finally {
+      if (!cancelled) {
+        setLoading(false);
+      }
+    }
+  }, [loadRun, selectedRun?.run_id]);
 
   useEffect(() => {
     let cancelled = false;
+    void loadRuns(cancelled);
 
-    async function loadRuns() {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await fetch("/api/operator/workflows/runs?limit=20", { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`Workflow runs request failed (${response.status})`);
-        }
-        const payload = (await response.json()) as WorkflowRunList;
-        if (!cancelled) {
-          setRuns(payload.runs);
-          if (payload.runs[0]) {
-            void loadRun(payload.runs[0].run_id);
-          } else {
-            setSelectedRun(null);
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unknown error");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    async function loadRun(runId: string) {
-      const response = await fetch(`/api/operator/workflows/runs/${encodeURIComponent(runId)}`, {
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        throw new Error(`Workflow run request failed (${response.status})`);
-      }
-      const payload = (await response.json()) as WorkflowRun;
-      if (!cancelled) {
-        setSelectedRun(payload);
-      }
-    }
-
-    void loadRuns();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadRuns]);
+
+  useEffect(() => {
+    const hasActiveRun = runs.some((run) => run.status === "queued" || run.status === "running");
+    if (!hasActiveRun) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void loadRuns(false);
+    }, 3000);
+
+    return () => window.clearInterval(interval);
+  }, [loadRuns, runs, selectedRun?.run_id]);
 
   async function selectRun(runId: string) {
     try {
-      const response = await fetch(`/api/operator/workflows/runs/${encodeURIComponent(runId)}`, {
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        throw new Error(`Workflow run request failed (${response.status})`);
-      }
-      const payload = (await response.json()) as WorkflowRun;
-      setSelectedRun(payload);
+      await loadRun(runId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
+    }
+  }
+
+  async function triggerWorkflow(workflowKey: "refresh-cycle" | "build-review-queue") {
+    setCommandState(`Starting ${workflowKey}...`);
+    setError(null);
+    try {
+      const response = await fetch("/api/operator/workflows/runs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          workflow_key: workflowKey,
+        }),
+      });
+      const payload = (await response.json()) as { detail?: string; run_id?: string };
+      if (!response.ok) {
+        throw new Error(payload.detail ?? `Workflow trigger failed (${response.status})`);
+      }
+
+      setCommandState(`${workflowKey} queued as ${payload.run_id}`);
+      await loadRuns();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown workflow error";
+      setCommandState(message);
+      setError(message);
     }
   }
 
   return (
     <main style={{ maxWidth: 1100, margin: "40px auto", padding: "0 24px" }}>
       <h1>Operator Runs</h1>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+        <button type="button" onClick={() => void triggerWorkflow("refresh-cycle")}>
+          Run Refresh Cycle
+        </button>
+        <button type="button" onClick={() => void triggerWorkflow("build-review-queue")}>
+          Build Review Queue
+        </button>
+        <button type="button" onClick={() => void loadRuns()}>
+          Refresh Runs
+        </button>
+      </div>
+      {commandState ? <p>{commandState}</p> : null}
       {loading ? <p>Loading runs…</p> : null}
       {error ? <p>Failed to load runs: {error}</p> : null}
 
@@ -133,6 +184,10 @@ export function OperatorRunsApp() {
               <p>Run ID: {selectedRun.run_id}</p>
               <p>Workflow: {selectedRun.workflow_key}</p>
               <p>Status: {selectedRun.status}</p>
+              <p>Requested by: {selectedRun.requested_by ?? "n/a"}</p>
+              <p>Requested at: {selectedRun.requested_at ?? "n/a"}</p>
+              <p>Started at: {selectedRun.started_at ?? "n/a"}</p>
+              <p>Completed at: {selectedRun.completed_at ?? "n/a"}</p>
               <p>Generated at: {selectedRun.generated_at ?? "n/a"}</p>
               <p>Step count: {selectedRun.step_count}</p>
               <div style={{ display: "grid", gap: 12, marginTop: 16 }}>

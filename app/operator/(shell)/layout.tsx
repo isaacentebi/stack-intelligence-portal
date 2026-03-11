@@ -1,14 +1,18 @@
+import { redirect } from "next/navigation";
 import { OperatorShell } from "@/components/operator/OperatorShell";
-import { OperatorAuthGate } from "@/components/ui/OperatorAuthGate";
+import { getOperatorSession } from "@/lib/operator-session";
 
-export default function OperatorShellLayout({
+export default async function OperatorShellLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await getOperatorSession();
+  if (!session) {
+    redirect("/operator/login");
+  }
+
   return (
-    <OperatorAuthGate>
-      <OperatorShell>{children}</OperatorShell>
-    </OperatorAuthGate>
+    <OperatorShell operatorEmail={session.email}>{children}</OperatorShell>
   );
 }
