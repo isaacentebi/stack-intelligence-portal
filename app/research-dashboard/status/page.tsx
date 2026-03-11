@@ -118,6 +118,12 @@ export default async function ResearchGatewayStatusPage() {
             {" · "}
             <Link href="/research-dashboard/runs">Operator Runs</Link>
             {" · "}
+            <Link href="/research-dashboard/publications">Publications</Link>
+            {" · "}
+            <Link href="/research-dashboard/bottlenecks">Bottlenecks</Link>
+            {" · "}
+            <Link href="/research-dashboard/routing">Routing</Link>
+            {" · "}
             <Link href="/research-dashboard/world">World Model</Link>
           </p>
         </section>
