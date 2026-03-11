@@ -116,6 +116,8 @@ export default async function ResearchGatewayStatusPage() {
           <p>
             <Link href="/research-dashboard/reviews">Review Queue</Link>
             {" · "}
+            <Link href="/research-dashboard/runs">Operator Runs</Link>
+            {" · "}
             <Link href="/research-dashboard/world">World Model</Link>
           </p>
         </section>
