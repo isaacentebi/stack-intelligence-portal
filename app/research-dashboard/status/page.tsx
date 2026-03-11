@@ -109,9 +109,14 @@ export default async function ResearchGatewayStatusPage() {
           <p>Routing open: {status?.routing.open_count ?? 0}</p>
           <p>
             Try API directly:{" "}
-            <a href={`${apiBaseUrl}/v1/operator/status`} target="_blank">
+            <a href={`${apiBaseUrl}/v1/operator/status`} target="_blank" rel="noreferrer">
               /v1/operator/status
             </a>
+          </p>
+          <p>
+            <Link href="/research-dashboard/reviews">Review Queue</Link>
+            {" · "}
+            <Link href="/research-dashboard/world">World Model</Link>
           </p>
         </section>
       )}
