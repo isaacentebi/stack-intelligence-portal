@@ -1,5 +1,5 @@
-import { WorldModel } from "@/components/world-model/WorldModel";
+import { redirect } from "next/navigation";
 
 export default function WorldModelPage() {
-  return <WorldModel embedded={false} />;
+  redirect("/operator/world");
 }
