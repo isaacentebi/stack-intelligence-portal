@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
-export default function ResearchGatewayStatusPage() {
+export default function OperatorRootPage() {
   redirect("/operator/status");
 }
