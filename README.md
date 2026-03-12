@@ -67,12 +67,28 @@ npm run build
 
 ## Environment
 
-- `NEXT_PUBLIC_API_BASE_URL`
-- `ENGINE_OPERATOR_API_TOKEN`
+Local template:
+
+- `.env.example`
+
+Production ownership:
+
+- Vercel Production environment owns real portal secrets
+- this repo only owns committed templates and documentation
+
+Required production vars:
+
+- `NEXT_PUBLIC_API_BASE_URL=https://api.thestack.capital`
 - `OPERATOR_ACCESS_HASH`
 - `OPERATOR_SESSION_SECRET`
 
-The deployed portal points at `https://api.thestack.capital`.
+Optional production var:
+
+- `ENGINE_OPERATOR_API_TOKEN` if engine bearer auth is enabled
+
+Production rule:
+
+- operator auth must not rely on `NEXT_PUBLIC_INVESTOR_ACCESS_HASH` or hard-coded defaults
 
 ## Canonical Doc
 

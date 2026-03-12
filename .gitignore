@@ -1,3 +1,5 @@
+.env*
+!.env.example
 .vercel
 node_modules
 .next
@@ -8,4 +10,7 @@ yarn-error.log*
 pnpm-debug.log*
 .DS_Store
 tsconfig.tsbuildinfo
+.dev.log
+.tmp_frontend.pid
 .tmp_react_dev.pid
+logs/

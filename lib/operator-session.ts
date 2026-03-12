@@ -14,16 +14,43 @@ export type OperatorSession = {
 
 type SignedSessionPayload = OperatorSession;
 
+function readEnv(name: string): string | null {
+  const value = process.env[name]?.trim();
+  return value ? value : null;
+}
+
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production";
+}
+
+function requireProductionEnv(name: string): string {
+  const value = readEnv(name);
+  if (value) {
+    return value;
+  }
+  throw new Error(`${name} must be set in production`);
+}
+
 function getOperatorAccessHash() {
-  return (
-    process.env.OPERATOR_ACCESS_HASH ??
-    process.env.NEXT_PUBLIC_INVESTOR_ACCESS_HASH ??
-    DEFAULT_INVESTOR_HASH
-  );
+  const operatorHash = readEnv("OPERATOR_ACCESS_HASH");
+  if (operatorHash) {
+    return operatorHash;
+  }
+  if (isProductionRuntime()) {
+    return requireProductionEnv("OPERATOR_ACCESS_HASH");
+  }
+  return readEnv("NEXT_PUBLIC_INVESTOR_ACCESS_HASH") ?? DEFAULT_INVESTOR_HASH;
 }
 
 function getOperatorSessionSecret() {
-  return process.env.OPERATOR_SESSION_SECRET ?? getOperatorAccessHash();
+  const sessionSecret = readEnv("OPERATOR_SESSION_SECRET");
+  if (sessionSecret) {
+    return sessionSecret;
+  }
+  if (isProductionRuntime()) {
+    return requireProductionEnv("OPERATOR_SESSION_SECRET");
+  }
+  return getOperatorAccessHash();
 }
 
 function encodeBase64Url(value: string) {
