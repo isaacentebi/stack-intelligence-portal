@@ -8216,6 +8216,10 @@ a.contact-row-value:hover {
 .deck-react.mobile-layout .ia-frame-labels { gap: 8px 16px; }
 .deck-react.mobile-layout .ia-frame-label-item { font-size: 15px; }
 
+/* Hide TradingView watermark */
+a[href*="tradingview"] { display: none !important; }
+a[target="_blank"][rel*="noreferrer"] { display: none !important; }
+
 
 /* ═══════════════════════════════════════════════════════════════════════
    STACK INTELLIGENCE

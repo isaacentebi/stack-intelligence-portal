@@ -177,6 +177,23 @@ export function StockChart({ ticker, currency = "USD" }: { ticker: string; curre
     return () => { cancelled = true; };
   }, [range, ticker]);
 
+  // Auto-poll every 60s while mounted
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const area = areaRef.current;
+      const vol = volRef.current;
+      const chart = chartRef.current;
+      if (!area || !vol || !chart) return;
+
+      fetchCandles(ticker, range).then((candles) => {
+        if (!areaRef.current || !volRef.current || !chartRef.current) return;
+        applyData(candles, areaRef.current, volRef.current, chartRef.current, setChangePct, setEmpty);
+      }).catch(() => {});
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [range, ticker]);
+
   const isUp = changePct != null && changePct >= 0;
 
   return (

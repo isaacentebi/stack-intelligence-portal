@@ -8,11 +8,10 @@ const NAV = [
   { href: "/operator/status", label: "Status" },
   { href: "/operator/world", label: "World" },
   { href: "/operator/companies", label: "Companies" },
+  { href: "/operator/research", label: "Research" },
   { href: "/operator/reviews", label: "Reviews" },
   { href: "/operator/runs", label: "Runs" },
-  { href: "/operator/publications", label: "Publications" },
   { href: "/operator/bottlenecks", label: "Bottlenecks" },
-  { href: "/operator/routing", label: "Routing" },
 ];
 
 export function OperatorShell({

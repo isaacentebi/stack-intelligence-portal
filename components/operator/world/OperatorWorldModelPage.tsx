@@ -352,6 +352,11 @@ function NodeView({
                   <th className="fin-th-period">Rev Q (USD)</th>
                   <th className="fin-th-period">P/E</th>
                   <th className="fin-th-period">Fwd P/E</th>
+                  <th className="fin-th-period">1D</th>
+                  <th className="fin-th-period">1W</th>
+                  <th className="fin-th-period">1M</th>
+                  <th className="fin-th-period">3M</th>
+                  <th className="fin-th-period">1Y</th>
                   <th className="fin-th-period">Relevance</th>
                   <th className="fin-th-period">Rev. Exp.</th>
                 </tr>
@@ -373,6 +378,11 @@ function NodeView({
                     const peStr = pe != null && pe > 0 && pe < 1000 ? pe.toFixed(1) : "—";
                     const fwdStr = fwd != null && fwd > 0 && fwd < 1000 ? `${fwd.toFixed(1)}` : "—";
                     const fwdYear = c.pe_forward_year ? ` '${String(c.pe_forward_year).replace(/\D/g, "").slice(-2)}` : "";
+                    const fmtRet = (v: number | null | undefined) => {
+                      if (v == null) return <span style={{ color: "#ccc" }}>—</span>;
+                      const color = v > 0 ? "#18A055" : v < 0 ? "#D94040" : "#8B949E";
+                      return <span style={{ color, fontFamily: "var(--font-data)", fontSize: 12 }}>{v >= 0 ? "+" : ""}{v.toFixed(1)}%</span>;
+                    };
 
                     return (
                       <tr key={c.ticker} style={{ cursor: "pointer" }} onClick={() => onNavigateCompany(c.ticker)} title={c.role ?? ""}>
@@ -384,6 +394,11 @@ function NodeView({
                         <td className="fin-td-value">{fmtUsd(c.revenue_quarterly_usd)}</td>
                         <td className="fin-td-value">{peStr}</td>
                         <td className="fin-td-value">{fwdStr}</td>
+                        <td className="fin-td-value">{fmtRet(c.return_1d)}</td>
+                        <td className="fin-td-value">{fmtRet(c.return_1w)}</td>
+                        <td className="fin-td-value">{fmtRet(c.return_1m)}</td>
+                        <td className="fin-td-value">{fmtRet(c.return_3m)}</td>
+                        <td className="fin-td-value">{fmtRet(c.return_1y)}</td>
                         <td className="fin-td-value">{capitalize(c.relevance)}</td>
                         <td className="fin-td-value">{capitalize(c.revenue_exposure)}</td>
                       </tr>

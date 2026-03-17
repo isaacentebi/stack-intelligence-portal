@@ -12,6 +12,8 @@ type CompanySummary = {
   exchange: string;
   country: string;
   market_cap: number | null;
+  revenue_ttm: number | null;
+  currency: string;
   price: number | null;
   priority: string;
   coverage_target: string;
@@ -41,6 +43,21 @@ function formatMarketCap(v: number | null): string {
 function formatPrice(v: number | null): string {
   if (v == null) return "—";
   return `$${v.toFixed(2)}`;
+}
+
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$", EUR: "€", GBP: "£", JPY: "¥", CNY: "¥", KRW: "₩",
+  TWD: "NT$", HKD: "HK$", CAD: "C$", AUD: "A$", INR: "₹", BRL: "R$", IDR: "Rp",
+};
+
+function formatRevenue(v: number | null, currency: string): string {
+  if (v == null) return "—";
+  const sym = CURRENCY_SYMBOLS[currency] ?? "$";
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return `${sym}${(v / 1e12).toFixed(1)}T`;
+  if (abs >= 1e9) return `${sym}${(v / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${sym}${(v / 1e6).toFixed(0)}M`;
+  return `${sym}${v.toLocaleString()}`;
 }
 
 function priorityBadgeClass(p: string): string {
@@ -177,6 +194,7 @@ export function CompanyListPage() {
                   <th><SortHeader label="Company" field="name" /></th>
                   <th style={{ width: 100 }}><SortHeader label="Sector" field="sector" /></th>
                   <th style={{ width: 100 }}><SortHeader label="Mkt Cap" field="market_cap" /></th>
+                  <th style={{ width: 100 }}>Revenue</th>
                   <th style={{ width: 65 }}>P/E</th>
                   <th style={{ width: 65 }}>Fwd P/E</th>
                   <th style={{ width: 55 }}>1D</th>
@@ -211,6 +229,7 @@ export function CompanyListPage() {
                       </td>
                       <td className="co-sector">{c.sector}</td>
                       <td className="co-mcap">{formatMarketCap(c.market_cap)}</td>
+                      <td className="co-mcap">{formatRevenue(c.revenue_ttm, c.currency)}</td>
                       <td className="co-price">{fmtPe(c.pe_ttm)}</td>
                       <td className="co-price">{fmtPe(c.pe_forward)}</td>
                       <td style={{ textAlign: "right" }}>{fmtRet(c.return_1d)}</td>
