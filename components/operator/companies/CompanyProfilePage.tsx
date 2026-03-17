@@ -7,6 +7,7 @@ import {
   TrendingUp,
   TrendingDown,
   BarChart3,
+  Brain,
   FileText,
   Layers,
   DollarSign,
@@ -50,7 +51,7 @@ type FinancialPeriod = Record<string, any>;
 
 type TranscriptEntry = { period: string; date: string; available: boolean };
 
-type Tab = "overview" | "financials" | "earnings" | "ownership" | "transcripts" | "world-model";
+type Tab = "overview" | "intelligence" | "financials" | "earnings" | "ownership" | "transcripts" | "world-model";
 
 /* ── Currency Context ───────────────────────────────────── */
 
@@ -146,6 +147,8 @@ export function CompanyProfilePage({ ticker }: { ticker: string }) {
   const [transcripts, setTranscripts] = useState<TranscriptEntry[] | null>(null);
   const [transcriptContent, setTranscriptContent] = useState<string | null>(null);
   const [selectedTranscript, setSelectedTranscript] = useState<string | null>(null);
+  const [enrichment, setEnrichment] = useState<Record<string, any> | null>(null);
+  const [enrichmentLoading, setEnrichmentLoading] = useState(false);
 
   // Load profile
   useEffect(() => {
@@ -196,6 +199,20 @@ export function CompanyProfilePage({ ticker }: { ticker: string }) {
       .catch(() => setTranscripts([]));
   }, [tab, ticker]);
 
+  // Load enrichment data
+  useEffect(() => {
+    if (tab !== "intelligence") return;
+    if (enrichment) return; // already loaded
+    let cancelled = false;
+    setEnrichmentLoading(true);
+    fetch(`/api/companies/${encodeURIComponent(ticker)}/enrichment`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => { if (!cancelled) setEnrichment(data); })
+      .catch(() => { if (!cancelled) setEnrichment({}); })
+      .finally(() => { if (!cancelled) setEnrichmentLoading(false); });
+    return () => { cancelled = true; };
+  }, [tab, ticker, enrichment]);
+
   // Load transcript content
   useEffect(() => {
     if (!selectedTranscript) { setTranscriptContent(null); return; }
@@ -232,6 +249,7 @@ export function CompanyProfilePage({ ticker }: { ticker: string }) {
 
   const TABS: { key: Tab; label: string; icon: any; hidden?: boolean }[] = [
     { key: "overview", label: "Overview", icon: BarChart3 },
+    { key: "intelligence", label: "Intelligence", icon: Brain },
     { key: "financials", label: "Financials", icon: DollarSign },
     { key: "earnings", label: "Earnings", icon: Target, hidden: !hasEarnings && Object.keys(exp.annual ?? {}).length === 0 },
     { key: "ownership", label: "Ownership", icon: Users, hidden: !hasOwnership },
@@ -306,6 +324,11 @@ export function CompanyProfilePage({ ticker }: { ticker: string }) {
       {tab === "overview" && <OverviewTab met={met} val={val} rat={rat} exp={exp} seg={seg} id={id} reg={reg} mkt={mkt} ticker={ticker} />}
       <div className={tab === "overview" ? "" : "co-tab-content"}>
         {tab === "overview" ? null : null}
+        {tab === "intelligence" && (
+          enrichmentLoading
+            ? <div className="op-loading"><span className="op-spinner" />Loading intelligence…</div>
+            : <IntelligenceTab enrichment={enrichment} />
+        )}
         {tab === "financials" && (
           <FinancialsTab
             financials={financials}
@@ -1180,6 +1203,219 @@ function WorldModelTab({ nodes, ticker }: { nodes: CompanyProfile["nodes"]; tick
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ── Tab: Intelligence ──────────────────────────────────── */
+
+function capitalize(s: any): string {
+  if (!s || typeof s !== "string") return "—";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function daysAgo(dateStr: any): string {
+  if (!dateStr) return "—";
+  try {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (days === 0) return "today";
+    if (days === 1) return "1 day ago";
+    return `${days} days ago`;
+  } catch {
+    return String(dateStr);
+  }
+}
+
+function IntelligenceTab({ enrichment }: { enrichment: Record<string, any> | null }) {
+  if (!enrichment || Object.keys(enrichment).length === 0) {
+    return <div className="op-empty">No intelligence data available for this company.</div>;
+  }
+
+  const judgment = enrichment.judgment ?? null;
+  const distilled = enrichment.distilled_transcripts ?? [];
+  const newsTriage = enrichment.news_triage ?? null;
+  const latestNews = enrichment.latest_news ?? null;
+
+  return (
+    <div>
+      {/* Section 1: AI Judgment */}
+      {judgment && (
+        <div style={{ marginBottom: 24 }}>
+          <div className="wm-detail-section-title">AI JUDGMENT</div>
+          {judgment.overall_summary && (
+            <p style={{ fontSize: 14, lineHeight: 1.6, color: "var(--text-primary)", margin: "8px 0 12px" }}>
+              {judgment.overall_summary}
+            </p>
+          )}
+          <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+            {judgment.generated_at && (
+              <span>Generated {daysAgo(judgment.generated_at)}</span>
+            )}
+            {judgment.model && (
+              <span>Model: <span style={{ fontFamily: "var(--font-data)" }}>{judgment.model}</span></span>
+            )}
+          </div>
+          {Array.isArray(judgment.nodes) && judgment.nodes.length > 0 && (
+            <div style={{ display: "grid", gap: 8 }}>
+              {judgment.nodes.map((n: any, i: number) => (
+                <div key={i} style={{ border: "1px solid #e5e5e5", padding: "12px 16px", borderLeft: `3px solid ${n.confidence === "high" ? "#18A055" : n.confidence === "medium" ? "#B08415" : "#888"}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontFamily: "var(--font-data)", fontSize: 13, fontWeight: 500, color: "#0D7A3E" }}>{n.node_id}</span>
+                      <span style={{ fontSize: 11, padding: "2px 6px", borderRadius: 3, background: "#e6f4ea", color: "#065c2d" }}>{capitalize(n.relevance)}</span>
+                      <span style={{ fontSize: 11, padding: "2px 6px", borderRadius: 3, background: "#f3f3f3", color: "#666" }}>{capitalize(n.revenue_exposure)} exposure</span>
+                      <span style={{ fontSize: 11, color: "#aaa" }}>Confidence: {capitalize(n.confidence)}</span>
+                    </div>
+                    {n.moat_in_node && n.moat_in_node.length > 0 && (
+                      <div style={{ display: "flex", gap: 3 }}>
+                        {n.moat_in_node.map((m: string) => (
+                          <span key={m} style={{ fontSize: 10, padding: "1px 5px", borderRadius: 2, background: "#e6f4ea", color: "#065c2d" }}>{m.replace(/_/g, " ")}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <p style={{ fontSize: 14, color: "#444", lineHeight: 1.6, margin: 0 }}>{n.role}</p>
+                  {n.evidence_refs && n.evidence_refs.length > 0 && (
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                      {n.evidence_refs.map((ref: string, ri: number) => (
+                        <span key={ri} style={{ fontSize: 10, padding: "1px 5px", background: "#f3f3f3", borderRadius: 2, color: "#888" }}>{ref}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Section 2: Distilled Transcripts */}
+      {distilled.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div className="wm-detail-section-title">DISTILLED TRANSCRIPTS</div>
+          {distilled.map((t: any, ti: number) => (
+            <div key={ti} style={{ marginBottom: 20, padding: "12px 16px", background: "#fafafa", borderRadius: 6, border: "1px solid #eee" }}>
+              <div style={{ fontFamily: "var(--font-data)", fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
+                {t.period ?? `Transcript ${ti + 1}`}
+              </div>
+
+              {/* Business lines */}
+              {Array.isArray(t.result?.business_lines ?? t.business_lines) && (t.result?.business_lines ?? t.business_lines)?.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, textTransform: "uppercase", color: "#aaa", marginBottom: 4 }}>Business Lines</div>
+                  {(t.result?.business_lines ?? t.business_lines).map((bl: any, bi: number) => (
+                    <div key={bi} style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 2 }}>
+                      <span style={{ fontWeight: 500 }}>{bl.label ?? "—"}</span>
+                      {bl.detail && <span style={{ color: "var(--text-muted)" }}> — {bl.detail}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Moat clues */}
+              {Array.isArray(t.result?.moat_clues ?? t.moat_clues) && (t.result?.moat_clues ?? t.moat_clues)?.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, textTransform: "uppercase", color: "#aaa", marginBottom: 4 }}>Moat Clues</div>
+                  {(t.result?.moat_clues ?? t.moat_clues).map((mc: any, mi: number) => (
+                    <div key={mi} style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 2, display: "flex", gap: 6, alignItems: "baseline" }}>
+                      {mc.type && (
+                        <span style={{
+                          display: "inline-block",
+                          fontSize: 10,
+                          fontWeight: 500,
+                          textTransform: "uppercase",
+                          color: "#0D7A3E",
+                          background: "rgba(13,122,62,0.08)",
+                          borderRadius: 3,
+                          padding: "1px 5px",
+                          whiteSpace: "nowrap",
+                        }}>
+                          {mc.type}
+                        </span>
+                      )}
+                      <span style={{ color: "var(--text-primary)" }}>{mc.detail ?? "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Growth areas */}
+              {Array.isArray(t.result?.growth_areas ?? t.growth_areas) && (t.result?.growth_areas ?? t.growth_areas)?.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, textTransform: "uppercase", color: "#aaa", marginBottom: 4 }}>Growth Areas</div>
+                  {(t.result?.growth_areas ?? t.growth_areas).map((ga: any, gi: number) => (
+                    <div key={gi} style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 2 }}>
+                      {typeof ga === "string" ? ga : (
+                        <><span style={{ fontWeight: 500 }}>{ga.area ?? ga.label ?? "—"}</span>{ga.detail && <span style={{ color: "var(--text-muted)" }}> — {ga.detail}</span>}</>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Section 3: News Triage */}
+      {newsTriage && (
+        <div style={{ marginBottom: 24 }}>
+          <div className="wm-detail-section-title">NEWS TRIAGE</div>
+          {newsTriage.summary && (
+            <p style={{ fontSize: 14, lineHeight: 1.6, color: "var(--text-primary)", margin: "8px 0 12px" }}>
+              {newsTriage.summary}
+            </p>
+          )}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+            {newsTriage.rerun != null && (
+              <span className={`op-badge ${newsTriage.rerun ? "op-badge--warning" : "op-badge--info"}`}>
+                Rerun: {newsTriage.rerun ? "Yes" : "No"}
+              </span>
+            )}
+            {newsTriage.bottleneck_review != null && (
+              <span className={`op-badge ${newsTriage.bottleneck_review ? "op-badge--warning" : "op-badge--info"}`}>
+                Bottleneck Review: {newsTriage.bottleneck_review ? "Yes" : "No"}
+              </span>
+            )}
+            {newsTriage.material_updates_count != null && (
+              <span className="op-badge op-badge--info">
+                Material Updates: {newsTriage.material_updates_count}
+              </span>
+            )}
+          </div>
+          {Array.isArray(newsTriage.material_updates) && newsTriage.material_updates.length > 0 && (
+            <div style={{ display: "grid", gap: 6 }}>
+              {newsTriage.material_updates.map((u: any, ui: number) => (
+                <div key={ui} style={{ fontSize: 13, lineHeight: 1.5, padding: "6px 10px", background: "#fafafa", borderRadius: 4, border: "1px solid #eee" }}>
+                  {typeof u === "string" ? u : (u.title ?? u.summary ?? JSON.stringify(u))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Section 4: Latest News */}
+      {latestNews && Array.isArray(latestNews.press_releases) && latestNews.press_releases.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div className="wm-detail-section-title">LATEST NEWS</div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {latestNews.press_releases.slice(0, 10).map((pr: any, pi: number) => (
+              <div key={pi} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, padding: "6px 10px", background: "#fafafa", borderRadius: 4, border: "1px solid #eee" }}>
+                <span style={{ color: "var(--text-primary)" }}>{pr.title ?? "—"}</span>
+                {pr.date && (
+                  <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-data)", whiteSpace: "nowrap", marginLeft: 12 }}>
+                    {pr.date}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
