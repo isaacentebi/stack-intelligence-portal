@@ -5,19 +5,18 @@ export const runtime = "nodejs";
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ publicationId: string }> },
+  { params }: { params: Promise<{ ticker: string; period: string }> },
 ) {
-  const { publicationId } = await params;
-
   try {
+    const { ticker, period } = await params;
     const { response, payload } = await fetchEngineJson(
-      `/v1/operator/publications/${encodeURIComponent(publicationId)}`,
+      `/v1/companies/${ticker}/transcripts/${period}`,
     );
     return NextResponse.json(payload, { status: response.status });
   } catch (error) {
     return NextResponse.json(
       {
-        error: "Failed to load publication detail from engine",
+        error: "Failed to load company transcript from engine",
         message: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 },

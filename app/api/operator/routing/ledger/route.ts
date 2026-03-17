@@ -1,15 +1,9 @@
 import { NextResponse } from "next/server";
 import { fetchEngineJson } from "@/lib/engine-api";
-import { requireOperatorApiSession } from "@/lib/operator-api-auth";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const { unauthorized } = await requireOperatorApiSession();
-  if (unauthorized) {
-    return unauthorized;
-  }
-
   const url = new URL(request.url);
   const limit = url.searchParams.get("limit");
   const path = limit ? `/v1/operator/routing/ledger?limit=${encodeURIComponent(limit)}` : "/v1/operator/routing/ledger";

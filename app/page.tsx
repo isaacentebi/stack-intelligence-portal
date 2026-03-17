@@ -36,6 +36,10 @@ export default function HomePage() {
         <Link className="deck-home-nav-link" href="/investor-login">
           Investor Login
         </Link>
+        <span className="deck-home-nav-sep" />
+        <Link className="deck-home-nav-link" href="/operator/login">
+          Intelligence
+        </Link>
       </nav>
 
       <button

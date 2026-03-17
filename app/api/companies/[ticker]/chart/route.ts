@@ -3,29 +3,21 @@ import { fetchEngineJson } from "@/lib/engine-api";
 
 export const runtime = "nodejs";
 
-export async function POST(
+export async function GET(
   request: Request,
-  { params }: { params: Promise<{ proposalKey: string }> },
+  { params }: { params: Promise<{ ticker: string }> },
 ) {
-  const { proposalKey } = await params;
-  const body = await request.json();
-
   try {
+    const { ticker } = await params;
+    const { searchParams } = new URL(request.url);
     const { response, payload } = await fetchEngineJson(
-      `/v1/operator/reviews/${encodeURIComponent(proposalKey)}/reject`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      },
+      `/v1/companies/${ticker}/chart?${searchParams.toString()}`,
     );
     return NextResponse.json(payload, { status: response.status });
   } catch (error) {
     return NextResponse.json(
       {
-        error: "Failed to reject review item through engine",
+        error: "Failed to load chart data from engine",
         message: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 },

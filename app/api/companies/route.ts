@@ -3,21 +3,17 @@ import { fetchEngineJson } from "@/lib/engine-api";
 
 export const runtime = "nodejs";
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ publicationId: string }> },
-) {
-  const { publicationId } = await params;
-
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
     const { response, payload } = await fetchEngineJson(
-      `/v1/operator/publications/${encodeURIComponent(publicationId)}`,
+      `/v1/companies?${searchParams}`,
     );
     return NextResponse.json(payload, { status: response.status });
   } catch (error) {
     return NextResponse.json(
       {
-        error: "Failed to load publication detail from engine",
+        error: "Failed to load companies from engine",
         message: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 },

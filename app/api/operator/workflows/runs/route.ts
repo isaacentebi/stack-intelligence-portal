@@ -1,15 +1,9 @@
 import { NextResponse } from "next/server";
 import { fetchEngineJson } from "@/lib/engine-api";
-import { requireOperatorApiSession } from "@/lib/operator-api-auth";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const { unauthorized } = await requireOperatorApiSession();
-  if (unauthorized) {
-    return unauthorized;
-  }
-
   const url = new URL(request.url);
   const limit = url.searchParams.get("limit");
   const path = limit ? `/v1/operator/workflows/runs?limit=${encodeURIComponent(limit)}` : "/v1/operator/workflows/runs";
@@ -29,11 +23,6 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { session, unauthorized } = await requireOperatorApiSession();
-  if (unauthorized) {
-    return unauthorized;
-  }
-
   const body = (await request.json()) as {
     workflow_key?: string;
   };
@@ -57,7 +46,7 @@ export async function POST(request: Request) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          requested_by: session?.email ?? "portal:operator",
+          requested_by: "portal:operator",
         }),
       },
     );
