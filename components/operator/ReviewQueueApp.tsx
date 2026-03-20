@@ -137,6 +137,16 @@ type AcceptedChange = {
   run_id?: string;
   node_ids?: string[];
   evidence_refs?: string[];
+  workflow_run_id?: string;
+  workflow_key?: string;
+  workflow_step?: string;
+  artifact_bundle?: Record<string, any>;
+  company_run_record?: { path?: string; decision_mode?: string };
+  decision_mode?: string;
+  rerun_explanation?: Record<string, any>;
+  evidence_used?: Record<string, any>;
+  recency_state?: Record<string, any>;
+  policy_state?: Record<string, any>;
 };
 
 /* ── Helpers ────────────────────────────────────────────── */
@@ -157,6 +167,33 @@ function timeAgo(iso: string | null | undefined): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function formatStamp(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return String(iso);
+  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function acceptedChangeExplanation(ac: AcceptedChange): string | null {
+  const explanation = ac.rerun_explanation ?? {};
+  const recency = ac.recency_state ?? {};
+  const policy = ac.policy_state ?? {};
+  const source = explanation.trigger_source ? humanize(explanation.trigger_source) : null;
+  const trigger = explanation.raw_trigger_reason ? humanize(explanation.raw_trigger_reason) : null;
+  const latestFinancial = explanation.latest_financial_period ?? recency.latest_financial_period;
+  const latestTranscript = explanation.latest_transcript_period ?? recency.latest_local_transcript_period;
+  const mode = policy.mode ? humanize(policy.mode) : (ac.decision_mode ? humanize(ac.decision_mode) : null);
+  const parts = [
+    source ? `Source: ${source}` : null,
+    trigger ? `reason ${trigger}` : null,
+    latestFinancial ? `financials ${latestFinancial}` : null,
+    latestTranscript ? `latest transcript ${latestTranscript}` : null,
+    recency.transcript_alignment ? `alignment ${humanize(recency.transcript_alignment)}` : null,
+    mode ? `mode ${mode}` : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join("; ") : null;
 }
 
 function reviewerLabel(s: string): { label: string; style: React.CSSProperties } {
@@ -642,7 +679,11 @@ function AcceptedChangeCard({ ac }: { ac: AcceptedChange }) {
         <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 3, background: outcomeStyle.bg, color: outcomeStyle.fg, border: `1px solid ${outcomeStyle.border}` }}>
           {outcomeLabel}
         </span>
-        {(ac.trigger_reasons ?? []).length > 0 && (
+        {acceptedChangeExplanation(ac) ? (
+          <span style={{ fontSize: 12, color: "#555", marginLeft: 8 }}>
+            {acceptedChangeExplanation(ac)}
+          </span>
+        ) : (ac.trigger_reasons ?? []).length > 0 ? (
           <>
             <span style={{ fontSize: 12, fontWeight: 500, color: "#888", marginLeft: 8 }}>Triggered by:</span>
             {ac.trigger_reasons.map((r, i) => (
@@ -651,8 +692,17 @@ function AcceptedChangeCard({ ac }: { ac: AcceptedChange }) {
               </span>
             ))}
           </>
-        )}
+        ) : null}
       </div>
+
+      {(ac.evidence_used?.latest_financial_period || ac.policy_state?.grace_expires_at || ac.workflow_run_id || ac.company_run_record?.path) && (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: "#777" }}>
+          {ac.evidence_used?.latest_financial_period && <span>Financial period: {ac.evidence_used.latest_financial_period}</span>}
+          {ac.policy_state?.grace_expires_at && <span>Grace expiry: {formatStamp(ac.policy_state.grace_expires_at)}</span>}
+          {ac.workflow_run_id && <span>Run: {ac.workflow_run_id}</span>}
+          {ac.company_run_record?.path && <span>Audit: {ac.company_run_record.path}</span>}
+        </div>
+      )}
 
       {/* ── Rationale (only if distinct from notes) ── */}
       {ac.summary && !(isBottleneck && ac.summary === bnNotesAfter) && (
@@ -1501,7 +1551,8 @@ export function ReviewQueueApp() {
                     // Otherwise: show nothing — better no chip than a fake one
                   }
 
-                  if (triggers.length === 0) {
+                  const explanation = useAC && ac ? acceptedChangeExplanation(ac) : null;
+                  if (triggers.length === 0 && !explanation) {
                     // No trigger context — just show the timestamp
                     return d.reviewed_at ? (
                       <div style={{ padding: "0 20px 10px" }}>
@@ -1525,11 +1576,17 @@ export function ReviewQueueApp() {
                   };
                   return (
                     <div style={{ padding: "0 20px 10px", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 11, fontWeight: 500, color: "#aaa" }}>Triggered by:</span>
-                      {triggers.map((r, i) => {
-                        const tc = tagColor(r);
-                        return <span key={i} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 2, background: tc.bg, color: tc.fg }}>{humanize(r)}</span>;
-                      })}
+                      {explanation ? (
+                        <span style={{ fontSize: 11, color: "#666" }}>{explanation}</span>
+                      ) : (
+                        <>
+                          <span style={{ fontSize: 11, fontWeight: 500, color: "#aaa" }}>Triggered by:</span>
+                          {triggers.map((r, i) => {
+                            const tc = tagColor(r);
+                            return <span key={i} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 2, background: tc.bg, color: tc.fg }}>{humanize(r)}</span>;
+                          })}
+                        </>
+                      )}
                       {d.reviewed_at && (
                         <span style={{ fontSize: 11, color: "#ccc", marginLeft: 4 }}>
                           {new Date(d.reviewed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
@@ -1739,7 +1796,9 @@ export function ReviewQueueApp() {
                 </button>
 
                 <div style={{ padding: "0 20px 10px", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                  {(ac.trigger_reasons ?? []).length > 0 ? (
+                  {acceptedChangeExplanation(ac) ? (
+                    <span style={{ fontSize: 11, color: "#666" }}>{acceptedChangeExplanation(ac)}</span>
+                  ) : (ac.trigger_reasons ?? []).length > 0 ? (
                     <>
                       <span style={{ fontSize: 11, fontWeight: 500, color: "#aaa" }}>Triggered by:</span>
                       {ac.trigger_reasons.map((r, i) => (
