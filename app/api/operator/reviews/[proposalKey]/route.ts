@@ -4,24 +4,19 @@ import { fetchEngineJson } from "@/lib/engine-api";
 export const runtime = "nodejs";
 
 export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ ticker: string }> },
+  _request: Request,
+  { params }: { params: Promise<{ proposalKey: string }> },
 ) {
+  const { proposalKey } = await params;
   try {
-    const { ticker } = await params;
-    const { searchParams } = new URL(request.url);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
     const { response, payload } = await fetchEngineJson(
-      `/v1/companies/${ticker}/chart?${searchParams.toString()}`,
-      { signal: controller.signal },
+      `/v1/operator/reviews/queue/${encodeURIComponent(proposalKey)}`,
     );
-    clearTimeout(timeout);
     return NextResponse.json(payload, { status: response.status });
   } catch (error) {
     return NextResponse.json(
       {
-        error: "Failed to load chart data from engine",
+        error: "Failed to load review item",
         message: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 },

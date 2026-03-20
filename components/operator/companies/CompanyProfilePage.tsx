@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -15,6 +15,13 @@ import {
   Target,
 } from "lucide-react";
 import dynamic from "next/dynamic";
+import {
+  useCompanyProfile,
+  useCompanyFinancials,
+  useCompanyTranscripts,
+  useCompanyEnrichment,
+  useTranscriptContent,
+} from "@/lib/hooks/use-operator";
 
 const StockChart = dynamic(
   () => import("@/components/operator/companies/StockChart").then((m) => m.StockChart),
@@ -133,94 +140,36 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: React
 
 export function CompanyProfilePage({ ticker }: { ticker: string }) {
   const router = useRouter();
-  const [profile, setProfile] = useState<CompanyProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [aboutOpen, setAboutOpen] = useState(false);
 
-  // Lazy-loaded data
-  const [financials, setFinancials] = useState<FinancialPeriod[] | null>(null);
+  // Financials UI state
   const [finStatement, setFinStatement] = useState<"income_statement" | "balance_sheet" | "cash_flow">("income_statement");
   const [finPeriodType, setFinPeriodType] = useState<"quarterly" | "annual">("quarterly");
-  const [finLoading, setFinLoading] = useState(false);
-  const [transcripts, setTranscripts] = useState<TranscriptEntry[] | null>(null);
-  const [transcriptContent, setTranscriptContent] = useState<string | null>(null);
   const [selectedTranscript, setSelectedTranscript] = useState<string | null>(null);
-  const [enrichment, setEnrichment] = useState<Record<string, any> | null>(null);
-  const [enrichmentLoading, setEnrichmentLoading] = useState(false);
 
-  // Load profile
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
+  // Chart-derived price and change % (synced from StockChart)
+  const [chartPrice, setChartPrice] = useState<number | null>(null);
+  const [chartChangePct, setChartChangePct] = useState<number | null>(null);
+  const handleChartDataChange = useCallback((lastPrice: number | null, changePct: number | null) => {
+    setChartPrice(lastPrice);
+    setChartChangePct(changePct);
+  }, []);
 
-    fetch(`/api/companies/${encodeURIComponent(ticker)}/profile`, { cache: "no-store" })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Profile request failed (${res.status})`);
-        return res.json();
-      })
-      .then((data) => { if (!cancelled) setProfile(data); })
-      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : "Unknown error"); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+  // SWR data fetching
+  const { data: profile, error: profileError, isLoading: loading } = useCompanyProfile(ticker);
+  const error = profileError ? (profileError instanceof Error ? profileError.message : "Unknown error") : null;
 
-    return () => { cancelled = true; };
-  }, [ticker]);
+  const { data: financialsData, isLoading: finLoading } = useCompanyFinancials(ticker, finStatement, finPeriodType, tab === "financials");
+  const financials = financialsData?.periods ?? [];
 
-  // Load financials on tab/statement/period change
-  const loadFinancials = useCallback(async () => {
-    setFinLoading(true);
-    try {
-      const res = await fetch(
-        `/api/companies/${encodeURIComponent(ticker)}/financials?statement=${finStatement}&period_type=${finPeriodType}`,
-        { cache: "no-store" },
-      );
-      if (!res.ok) throw new Error(`Financials failed (${res.status})`);
-      const data = await res.json();
-      setFinancials(data.periods ?? []);
-    } catch {
-      setFinancials([]);
-    } finally {
-      setFinLoading(false);
-    }
-  }, [ticker, finStatement, finPeriodType]);
+  const { data: transcriptsData } = useCompanyTranscripts(ticker, tab === "transcripts");
+  const transcripts: TranscriptEntry[] | null = transcriptsData ? (transcriptsData.transcripts ?? []) : null;
 
-  useEffect(() => {
-    if (tab === "financials") void loadFinancials();
-  }, [tab, loadFinancials]);
+  const { data: enrichment, isLoading: enrichmentLoading } = useCompanyEnrichment(ticker, tab === "intelligence");
 
-  // Load transcripts list
-  useEffect(() => {
-    if (tab !== "transcripts") return;
-    fetch(`/api/companies/${encodeURIComponent(ticker)}/transcripts`, { cache: "no-store" })
-      .then((res) => res.json())
-      .then((data) => setTranscripts(data.transcripts ?? []))
-      .catch(() => setTranscripts([]));
-  }, [tab, ticker]);
-
-  // Load enrichment data
-  useEffect(() => {
-    if (tab !== "intelligence") return;
-    if (enrichment) return; // already loaded
-    let cancelled = false;
-    setEnrichmentLoading(true);
-    fetch(`/api/companies/${encodeURIComponent(ticker)}/enrichment`, { cache: "no-store" })
-      .then((res) => res.json())
-      .then((data) => { if (!cancelled) setEnrichment(data); })
-      .catch(() => { if (!cancelled) setEnrichment({}); })
-      .finally(() => { if (!cancelled) setEnrichmentLoading(false); });
-    return () => { cancelled = true; };
-  }, [tab, ticker, enrichment]);
-
-  // Load transcript content
-  useEffect(() => {
-    if (!selectedTranscript) { setTranscriptContent(null); return; }
-    fetch(`/api/companies/${encodeURIComponent(ticker)}/transcripts/${encodeURIComponent(selectedTranscript)}`, { cache: "no-store" })
-      .then((res) => res.json())
-      .then((data) => setTranscriptContent(data.content ?? JSON.stringify(data, null, 2)))
-      .catch(() => setTranscriptContent("Failed to load transcript."));
-  }, [selectedTranscript, ticker]);
+  const { data: transcriptContentData } = useTranscriptContent(ticker, selectedTranscript);
+  const transcriptContent = transcriptContentData?.content ?? (transcriptContentData ? JSON.stringify(transcriptContentData, null, 2) : null);
 
   if (loading) return <div className="op-loading" style={{ minHeight: 400 }}><span className="op-spinner" />Loading profile…</div>;
   if (error) return <div className="op-error" style={{ margin: 32 }}>{error}</div>;
@@ -257,8 +206,10 @@ export function CompanyProfilePage({ ticker }: { ticker: string }) {
     { key: "world-model", label: "World Model", icon: Layers, hidden: !hasNodes },
   ];
 
-  const changePct = mkt.quote?.change_pct;
-  const changeUp = changePct != null && changePct >= 0;
+  // Use chart-derived price/change when available, fallback to static profile data
+  const displayPrice = chartPrice ?? mkt.price;
+  const displayChangePct = chartChangePct ?? mkt.quote?.change_pct;
+  const changeUp = displayChangePct != null && displayChangePct >= 0;
 
   return (
     <div className="co-profile">
@@ -273,10 +224,10 @@ export function CompanyProfilePage({ ticker }: { ticker: string }) {
           <span className="co-bar-ticker">{ticker}</span>
         </div>
         <div className="co-bar-right">
-          <span className="co-bar-price">{fmt(mkt.price, "currency")}</span>
-          {changePct != null && (
+          <span className="co-bar-price">{fmt(displayPrice, "currency")}</span>
+          {displayChangePct != null && (
             <span className={`co-bar-delta ${changeUp ? "co-bar-delta--up" : "co-bar-delta--dn"}`}>
-              {changeUp ? "+" : ""}{changePct.toFixed(2)}%
+              {changeUp ? "+" : ""}{displayChangePct.toFixed(2)}%
             </span>
           )}
         </div>
@@ -321,13 +272,13 @@ export function CompanyProfilePage({ ticker }: { ticker: string }) {
       </nav>
 
       {/* Tab content */}
-      {tab === "overview" && <OverviewTab met={met} val={val} rat={rat} exp={exp} seg={seg} id={id} reg={reg} mkt={mkt} ticker={ticker} />}
+      {tab === "overview" && <OverviewTab met={met} val={val} rat={rat} exp={exp} seg={seg} id={id} reg={reg} mkt={mkt} ticker={ticker} onChartDataChange={handleChartDataChange} />}
       <div className={tab === "overview" ? "" : "co-tab-content"}>
         {tab === "overview" ? null : null}
         {tab === "intelligence" && (
           enrichmentLoading
             ? <div className="op-loading"><span className="op-spinner" />Loading intelligence…</div>
-            : <IntelligenceTab enrichment={enrichment} />
+            : <IntelligenceTab enrichment={enrichment} profileNodes={p.nodes} />
         )}
         {tab === "financials" && (
           <FinancialsTab
@@ -408,7 +359,7 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-function OverviewTab({ met, val, rat, exp, seg, id, reg, mkt, ticker }: Record<string, any>) {
+function OverviewTab({ met, val, rat, exp, seg, id, reg, mkt, ticker, onChartDataChange }: Record<string, any>) {
   const ttm = met.trailing_12_months ?? {};
   const margins = met.margins ?? {};
   const returns = met.returns ?? {};
@@ -423,7 +374,7 @@ function OverviewTab({ met, val, rat, exp, seg, id, reg, mkt, ticker }: Record<s
 
   return (
     <>
-    <StockChart ticker={ticker} currency={id.currency ?? "USD"} />
+    <StockChart ticker={ticker} currency={id.currency ?? "USD"} onDataChange={onChartDataChange} />
     <div className="co-tab-content">
     <div className="co-panel-grid">
       <Panel title="Key Stats (TTM)">
@@ -1229,7 +1180,9 @@ function daysAgo(dateStr: any): string {
   }
 }
 
-function IntelligenceTab({ enrichment }: { enrichment: Record<string, any> | null }) {
+function IntelligenceTab({ enrichment, profileNodes }: { enrichment: Record<string, any> | null; profileNodes?: any[] }) {
+  const [openPeriods, setOpenPeriods] = useState<Record<number, boolean>>({ 0: true });
+
   if (!enrichment || Object.keys(enrichment).length === 0) {
     return <div className="op-empty">No intelligence data available for this company.</div>;
   }
@@ -1239,182 +1192,450 @@ function IntelligenceTab({ enrichment }: { enrichment: Record<string, any> | nul
   const newsTriage = enrichment.news_triage ?? null;
   const latestNews = enrichment.latest_news ?? null;
 
+  const REL_COLORS: Record<string, { bg: string; fg: string }> = {
+    core: { bg: "#0D7A3E", fg: "#fff" },
+    significant: { bg: "#0B5EA8", fg: "#fff" },
+    peripheral: { bg: "#e5e5e5", fg: "#555" },
+  };
+
+  const fmtPeriod = (p: string) => (p ?? "").replace(/_/g, " ");
+  const ACRONYMS: Record<string, string> = { Ip: "IP", Ai: "AI", Gpu: "GPU", Cpu: "CPU", Api: "API", Sdk: "SDK", Hbm: "HBM", Tsmc: "TSMC" };
+  const humanizeMoat = (s: string) => s.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()).replace(/\b\w+/g, (w) => ACRONYMS[w] ?? w);
+
+  const togglePeriod = (idx: number) => setOpenPeriods((prev) => ({ ...prev, [idx]: !prev[idx] }));
+
+  // Latest transcript data for top-level sections
+  const latest = distilled[0] ?? {};
+  const latestR = latest.result ?? latest;
+  const allGrowth: any[] = latestR.growth_areas ?? [];
+  const allDeclining: any[] = latestR.declining_or_small_areas ?? [];
+  const allQuotes: any[] = latestR.supporting_quotes ?? [];
+  const allNodeFacts: string[] = latestR.node_relevant_facts ?? [];
+  const allUncertainty: string[] = latestR.uncertainty_notes ?? [];
+
+  // Section header style
+  const SH = { fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 400 as const, margin: 0, color: "#111" };
+  // Sub-section label style
+  const SSL = { fontSize: 12, fontWeight: 600 as const, color: "#888", letterSpacing: 0.5, textTransform: "uppercase" as const, marginBottom: 10 };
+
   return (
     <div>
-      {/* Section 1: AI Judgment */}
+      {/* ── Thesis ───────────────────────────────────── */}
       {judgment && (
-        <div style={{ marginBottom: 24 }}>
-          <div className="wm-detail-section-title">AI JUDGMENT</div>
+        <section style={{ marginBottom: 36 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
+            <h2 style={SH}>Thesis</h2>
+            <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: "#bbb" }}>
+              {judgment.generated_at && daysAgo(judgment.generated_at)} · {judgment.model}
+            </span>
+          </div>
           {judgment.overall_summary && (
-            <p style={{ fontSize: 14, lineHeight: 1.6, color: "var(--text-primary)", margin: "8px 0 12px" }}>
+            <p style={{ fontSize: 16, lineHeight: 1.8, color: "#333", margin: 0, borderLeft: "3px solid #0D7A3E", paddingLeft: 18 }}>
               {judgment.overall_summary}
             </p>
           )}
-          <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
-            {judgment.generated_at && (
-              <span>Generated {daysAgo(judgment.generated_at)}</span>
-            )}
-            {judgment.model && (
-              <span>Model: <span style={{ fontFamily: "var(--font-data)" }}>{judgment.model}</span></span>
-            )}
+        </section>
+      )}
+
+      {/* ── Node Positions ───────────────────────────── */}
+      {judgment && Array.isArray(judgment.nodes) && judgment.nodes.length > 0 && (
+        <section style={{ marginBottom: 36 }}>
+          <h2 style={{ ...SH, marginBottom: 16 }}>
+            Node Positions <span style={{ fontFamily: "var(--font-data)", fontSize: 14, color: "#aaa", fontWeight: 400 }}>({judgment.nodes.length})</span>
+          </h2>
+          <div className="co-fin-table-wrap">
+            <table className="fin-table">
+              <thead>
+                <tr>
+                  <th className="fin-th-label" style={{ minWidth: 50 }}>Node</th>
+                  <th className="fin-th-label">Name</th>
+                  <th className="fin-th-period" style={{ minWidth: 90 }}>Relevance</th>
+                  <th className="fin-th-period" style={{ minWidth: 80 }}>Revenue</th>
+                  <th className="fin-th-period" style={{ minWidth: 90 }}>Confidence</th>
+                  <th className="fin-th-label" style={{ minWidth: 320 }}>Role & Moats</th>
+                </tr>
+              </thead>
+              <tbody>
+                {judgment.nodes.map((n: any, i: number) => {
+                  const rel = REL_COLORS[n.relevance] ?? REL_COLORS.peripheral;
+                  const profileNode = (profileNodes ?? []).find((pn: any) => pn.node_id === n.node_id);
+                  const nodeName = n.node_name ?? profileNode?.node_title ?? "";
+                  return (
+                    <tr key={i}>
+                      <td className="fin-td-label" style={{ fontFamily: "var(--font-data)", fontWeight: 600, color: "#0D7A3E", verticalAlign: "top", fontSize: 14 }}>
+                        {n.node_id}
+                      </td>
+                      <td className="fin-td-label" style={{ verticalAlign: "top", color: "#444", fontSize: 14, fontWeight: 500 }}>
+                        {nodeName}
+                      </td>
+                      <td className="fin-td-value" style={{ verticalAlign: "top" }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.3, textTransform: "uppercase", padding: "3px 8px", borderRadius: 2, background: rel.bg, color: rel.fg }}>{capitalize(n.relevance)}</span>
+                      </td>
+                      <td className="fin-td-value" style={{ verticalAlign: "top", fontSize: 14 }}>{capitalize(n.revenue_exposure)}</td>
+                      <td className="fin-td-value" style={{ verticalAlign: "top", fontSize: 14 }}>{capitalize(n.confidence)}</td>
+                      <td style={{ padding: "10px 14px", fontSize: 14, color: "#444", lineHeight: 1.7, borderBottom: "1px solid #f3f3f3", verticalAlign: "top" }}>
+                        {n.role}
+                        {n.moat_in_node?.length > 0 && (
+                          <div style={{ display: "flex", gap: 5, marginTop: 8, flexWrap: "wrap" }}>
+                            {n.moat_in_node.map((m: string) => (
+                              <span key={m} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 2, border: "1px solid #d4e8da", color: "#0D7A3E", background: "#f0f8f3", fontWeight: 500 }}>
+                                {humanizeMoat(m)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-          {Array.isArray(judgment.nodes) && judgment.nodes.length > 0 && (
-            <div style={{ display: "grid", gap: 8 }}>
-              {judgment.nodes.map((n: any, i: number) => (
-                <div key={i} style={{ border: "1px solid #e5e5e5", padding: "12px 16px", borderLeft: `3px solid ${n.confidence === "high" ? "#18A055" : n.confidence === "medium" ? "#B08415" : "#888"}` }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontFamily: "var(--font-data)", fontSize: 13, fontWeight: 500, color: "#0D7A3E" }}>{n.node_id}</span>
-                      <span style={{ fontSize: 11, padding: "2px 6px", borderRadius: 3, background: "#e6f4ea", color: "#065c2d" }}>{capitalize(n.relevance)}</span>
-                      <span style={{ fontSize: 11, padding: "2px 6px", borderRadius: 3, background: "#f3f3f3", color: "#666" }}>{capitalize(n.revenue_exposure)} exposure</span>
-                      <span style={{ fontSize: 11, color: "#aaa" }}>Confidence: {capitalize(n.confidence)}</span>
-                    </div>
-                    {n.moat_in_node && n.moat_in_node.length > 0 && (
-                      <div style={{ display: "flex", gap: 3 }}>
-                        {n.moat_in_node.map((m: string) => (
-                          <span key={m} style={{ fontSize: 10, padding: "1px 5px", borderRadius: 2, background: "#e6f4ea", color: "#065c2d" }}>{m.replace(/_/g, " ")}</span>
-                        ))}
-                      </div>
-                    )}
+        </section>
+      )}
+
+      {/* ── Growth Vectors ────────────────────────────── */}
+      {allGrowth.length > 0 && (
+        <section style={{ marginBottom: 36 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <div style={{ width: 3, height: 20, background: "#18A055", borderRadius: 1 }} />
+            <h2 style={SH}>Growth Vectors</h2>
+            <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: "#bbb", marginLeft: "auto" }}>{fmtPeriod(latest.period)}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(420px, 1fr))", gap: 14 }}>
+            {allGrowth.map((ga: any, gi: number) => {
+              const area = typeof ga === "string" ? ga : (ga.area ?? ga.label ?? "");
+              const detail = typeof ga === "string" ? "" : (ga.detail ?? "");
+              const source = typeof ga === "string" ? "" : (ga.source ?? "");
+              const quote = typeof ga === "string" ? "" : (ga.quote ?? "");
+              return (
+                <div key={gi} style={{ padding: "16px 18px", background: "#fafdfb", border: "1px solid #e2ede6", borderRadius: 4, borderLeft: "3px solid #18A055" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: detail || quote ? 10 : 0 }}>
+                    <TrendingUp style={{ width: 15, height: 15, color: "#18A055", flexShrink: 0 }} />
+                    <span style={{ fontSize: 16, fontWeight: 500, color: "#111" }}>{area}</span>
                   </div>
-                  <p style={{ fontSize: 14, color: "#444", lineHeight: 1.6, margin: 0 }}>{n.role}</p>
-                  {n.evidence_refs && n.evidence_refs.length > 0 && (
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
-                      {n.evidence_refs.map((ref: string, ri: number) => (
-                        <span key={ri} style={{ fontSize: 10, padding: "1px 5px", background: "#f3f3f3", borderRadius: 2, color: "#888" }}>{ref}</span>
-                      ))}
-                    </div>
+                  {detail && <p style={{ fontSize: 14, color: "#555", lineHeight: 1.7, margin: "0 0 8px" }}>{detail}</p>}
+                  {quote && (
+                    <blockquote style={{ margin: "10px 0 0", padding: "10px 14px", background: "#f4f8f5", borderLeft: "2px solid #c5dece", fontSize: 13, color: "#4a6b53", lineHeight: 1.6, fontStyle: "italic", borderRadius: "0 3px 3px 0" }}>
+                      &ldquo;{quote}&rdquo;
+                    </blockquote>
                   )}
+                  {source && <div style={{ fontSize: 11, color: "#aaa", marginTop: 8, fontFamily: "var(--font-data)" }}>{fmtPeriod(source)}</div>}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Section 2: Distilled Transcripts */}
-      {distilled.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div className="wm-detail-section-title">DISTILLED TRANSCRIPTS</div>
-          {distilled.map((t: any, ti: number) => (
-            <div key={ti} style={{ marginBottom: 20, padding: "12px 16px", background: "#fafafa", borderRadius: 6, border: "1px solid #eee" }}>
-              <div style={{ fontFamily: "var(--font-data)", fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
-                {t.period ?? `Transcript ${ti + 1}`}
-              </div>
-
-              {/* Business lines */}
-              {Array.isArray(t.result?.business_lines ?? t.business_lines) && (t.result?.business_lines ?? t.business_lines)?.length > 0 && (
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 11, textTransform: "uppercase", color: "#aaa", marginBottom: 4 }}>Business Lines</div>
-                  {(t.result?.business_lines ?? t.business_lines).map((bl: any, bi: number) => (
-                    <div key={bi} style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 2 }}>
-                      <span style={{ fontWeight: 500 }}>{bl.label ?? "—"}</span>
-                      {bl.detail && <span style={{ color: "var(--text-muted)" }}> — {bl.detail}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Moat clues */}
-              {Array.isArray(t.result?.moat_clues ?? t.moat_clues) && (t.result?.moat_clues ?? t.moat_clues)?.length > 0 && (
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 11, textTransform: "uppercase", color: "#aaa", marginBottom: 4 }}>Moat Clues</div>
-                  {(t.result?.moat_clues ?? t.moat_clues).map((mc: any, mi: number) => (
-                    <div key={mi} style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 2, display: "flex", gap: 6, alignItems: "baseline" }}>
-                      {mc.type && (
-                        <span style={{
-                          display: "inline-block",
-                          fontSize: 10,
-                          fontWeight: 500,
-                          textTransform: "uppercase",
-                          color: "#0D7A3E",
-                          background: "rgba(13,122,62,0.08)",
-                          borderRadius: 3,
-                          padding: "1px 5px",
-                          whiteSpace: "nowrap",
-                        }}>
-                          {mc.type}
-                        </span>
-                      )}
-                      <span style={{ color: "var(--text-primary)" }}>{mc.detail ?? "—"}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Growth areas */}
-              {Array.isArray(t.result?.growth_areas ?? t.growth_areas) && (t.result?.growth_areas ?? t.growth_areas)?.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 11, textTransform: "uppercase", color: "#aaa", marginBottom: 4 }}>Growth Areas</div>
-                  {(t.result?.growth_areas ?? t.growth_areas).map((ga: any, gi: number) => (
-                    <div key={gi} style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 2 }}>
-                      {typeof ga === "string" ? ga : (
-                        <><span style={{ fontWeight: 500 }}>{ga.area ?? ga.label ?? "—"}</span>{ga.detail && <span style={{ color: "var(--text-muted)" }}> — {ga.detail}</span>}</>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Section 3: News Triage */}
-      {newsTriage && (
-        <div style={{ marginBottom: 24 }}>
-          <div className="wm-detail-section-title">NEWS TRIAGE</div>
-          {newsTriage.summary && (
-            <p style={{ fontSize: 14, lineHeight: 1.6, color: "var(--text-primary)", margin: "8px 0 12px" }}>
-              {newsTriage.summary}
-            </p>
-          )}
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-            {newsTriage.rerun != null && (
-              <span className={`op-badge ${newsTriage.rerun ? "op-badge--warning" : "op-badge--info"}`}>
-                Rerun: {newsTriage.rerun ? "Yes" : "No"}
-              </span>
-            )}
-            {newsTriage.bottleneck_review != null && (
-              <span className={`op-badge ${newsTriage.bottleneck_review ? "op-badge--warning" : "op-badge--info"}`}>
-                Bottleneck Review: {newsTriage.bottleneck_review ? "Yes" : "No"}
-              </span>
-            )}
-            {newsTriage.material_updates_count != null && (
-              <span className="op-badge op-badge--info">
-                Material Updates: {newsTriage.material_updates_count}
-              </span>
-            )}
+              );
+            })}
           </div>
-          {Array.isArray(newsTriage.material_updates) && newsTriage.material_updates.length > 0 && (
-            <div style={{ display: "grid", gap: 6 }}>
-              {newsTriage.material_updates.map((u: any, ui: number) => (
-                <div key={ui} style={{ fontSize: 13, lineHeight: 1.5, padding: "6px 10px", background: "#fafafa", borderRadius: 4, border: "1px solid #eee" }}>
-                  {typeof u === "string" ? u : (u.title ?? u.summary ?? JSON.stringify(u))}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        </section>
       )}
 
-      {/* Section 4: Latest News */}
-      {latestNews && Array.isArray(latestNews.press_releases) && latestNews.press_releases.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div className="wm-detail-section-title">LATEST NEWS</div>
-          <div style={{ display: "grid", gap: 6 }}>
-            {latestNews.press_releases.slice(0, 10).map((pr: any, pi: number) => (
-              <div key={pi} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, padding: "6px 10px", background: "#fafafa", borderRadius: 4, border: "1px solid #eee" }}>
-                <span style={{ color: "var(--text-primary)" }}>{pr.title ?? "—"}</span>
-                {pr.date && (
-                  <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-data)", whiteSpace: "nowrap", marginLeft: 12 }}>
-                    {pr.date}
-                  </span>
+      {/* ── Declining / Small Areas ───────────────────── */}
+      {allDeclining.length > 0 && (
+        <section style={{ marginBottom: 36 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <div style={{ width: 3, height: 20, background: "#D9A040", borderRadius: 1 }} />
+            <h2 style={SH}>Declining & Small Areas</h2>
+            <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: "#bbb", marginLeft: "auto" }}>{fmtPeriod(latest.period)}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(420px, 1fr))", gap: 14 }}>
+            {allDeclining.map((da: any, di: number) => {
+              const area = typeof da === "string" ? da : (da.area ?? da.label ?? "");
+              const detail = typeof da === "string" ? "" : (da.detail ?? "");
+              const source = typeof da === "string" ? "" : (da.source ?? "");
+              const quote = typeof da === "string" ? "" : (da.quote ?? "");
+              return (
+                <div key={di} style={{ padding: "16px 18px", background: "#fefcf7", border: "1px solid #efe3c8", borderRadius: 4, borderLeft: "3px solid #D9A040" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: detail || quote ? 10 : 0 }}>
+                    <TrendingDown style={{ width: 15, height: 15, color: "#D9A040", flexShrink: 0 }} />
+                    <span style={{ fontSize: 16, fontWeight: 500, color: "#111" }}>{area}</span>
+                  </div>
+                  {detail && <p style={{ fontSize: 14, color: "#555", lineHeight: 1.7, margin: "0 0 8px" }}>{detail}</p>}
+                  {quote && (
+                    <blockquote style={{ margin: "10px 0 0", padding: "10px 14px", background: "#fdf8ef", borderLeft: "2px solid #e5d5ad", fontSize: 13, color: "#8c7540", lineHeight: 1.6, fontStyle: "italic", borderRadius: "0 3px 3px 0" }}>
+                      &ldquo;{quote}&rdquo;
+                    </blockquote>
+                  )}
+                  {source && <div style={{ fontSize: 11, color: "#aaa", marginTop: 8, fontFamily: "var(--font-data)" }}>{fmtPeriod(source)}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* ── Supporting Quotes ─────────────────────────── */}
+      {allQuotes.length > 0 && (
+        <section style={{ marginBottom: 36 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <div style={{ width: 3, height: 20, background: "#0B5EA8", borderRadius: 1 }} />
+            <h2 style={SH}>Management Quotes</h2>
+          </div>
+          <div style={{ display: "grid", gap: 12 }}>
+            {allQuotes.map((sq: any, qi: number) => (
+              <div key={qi} style={{ padding: "16px 20px", background: "#f8fafc", border: "1px solid #e5eaf0", borderRadius: 4, borderLeft: "3px solid #0B5EA8" }}>
+                <blockquote style={{ margin: 0, fontSize: 16, color: "#333", lineHeight: 1.7, fontStyle: "italic", fontFamily: "var(--font-display)" }}>
+                  &ldquo;{sq.quote}&rdquo;
+                </blockquote>
+                {sq.why_it_matters && (
+                  <p style={{ margin: "10px 0 0", fontSize: 14, color: "#555", lineHeight: 1.6 }}>
+                    <span style={{ fontWeight: 500, color: "#0B5EA8", marginRight: 6 }}>Significance:</span>
+                    {sq.why_it_matters}
+                  </p>
                 )}
               </div>
             ))}
           </div>
-        </div>
+        </section>
+      )}
+
+      {/* ── Node-Relevant Facts ───────────────────────── */}
+      {allNodeFacts.length > 0 && (
+        <section style={{ marginBottom: 36 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <div style={{ width: 3, height: 20, background: "#0D7A3E", borderRadius: 1 }} />
+            <h2 style={SH}>Node-Relevant Facts</h2>
+          </div>
+          <div style={{ padding: "14px 18px", background: "#fafafa", border: "1px solid #eee", borderRadius: 4 }}>
+            {allNodeFacts.map((fact: string, fi: number) => (
+              <div key={fi} style={{ display: "flex", gap: 12, padding: "8px 0", borderBottom: fi < allNodeFacts.length - 1 ? "1px solid #f0f0f0" : "none", alignItems: "baseline" }}>
+                <span style={{ width: 5, height: 5, borderRadius: 3, background: "#0D7A3E", flexShrink: 0, marginTop: 7 }} />
+                <span style={{ fontSize: 14, color: "#444", lineHeight: 1.6 }}>{fact}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Uncertainty Notes ─────────────────────────── */}
+      {allUncertainty.length > 0 && (
+        <section style={{ marginBottom: 36 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <div style={{ width: 3, height: 20, background: "#D9A040", borderRadius: 1 }} />
+            <h2 style={SH}>Uncertainty & Caveats</h2>
+          </div>
+          <div style={{ padding: "14px 18px", background: "#fffcf5", border: "1px solid #f0e4c4", borderRadius: 4 }}>
+            {allUncertainty.map((note: string, ni: number) => (
+              <div key={ni} style={{ display: "flex", gap: 12, padding: "8px 0", borderBottom: ni < allUncertainty.length - 1 ? "1px solid #f5eed8" : "none", alignItems: "baseline" }}>
+                <span style={{ fontSize: 14, color: "#D9A040", fontWeight: 600, flexShrink: 0 }}>!</span>
+                <span style={{ fontSize: 14, color: "#6b5e3a", lineHeight: 1.6 }}>{note}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Earnings Call Distills (collapsible per period) */}
+      {distilled.length > 0 && (
+        <section style={{ marginBottom: 36 }}>
+          <h2 style={{ ...SH, marginBottom: 16 }}>
+            Earnings Call Distills <span style={{ fontFamily: "var(--font-data)", fontSize: 14, color: "#aaa", fontWeight: 400 }}>({distilled.length})</span>
+          </h2>
+          <div style={{ display: "grid", gap: 8 }}>
+            {distilled.map((t: any, ti: number) => {
+              const r = t.result ?? t;
+              const blines = r.business_lines ?? [];
+              const moats = r.moat_clues ?? [];
+              const products = r.product_mentions ?? [];
+              const segments = r.segment_clues ?? [];
+              const geos = r.geography_clues ?? [];
+              const isOpen = !!openPeriods[ti];
+              const hasContent = blines.length > 0 || moats.length > 0 || products.length > 0 || segments.length > 0 || geos.length > 0;
+
+              return (
+                <div key={ti} style={{ border: "1px solid #e5e5e5", borderRadius: 4, overflow: "hidden", background: isOpen ? "#fff" : "#fafafa" }}>
+                  {/* Collapsible header */}
+                  <button
+                    type="button"
+                    onClick={() => togglePeriod(ti)}
+                    style={{
+                      all: "unset", cursor: "pointer", display: "flex", alignItems: "center", width: "100%",
+                      padding: "14px 18px", boxSizing: "border-box", gap: 12,
+                      background: isOpen ? "#fff" : "#fafafa",
+                      borderBottom: isOpen ? "1px solid #eee" : "none",
+                    }}
+                  >
+                    <span style={{ fontSize: 13, color: "#999", transition: "transform 0.15s", transform: isOpen ? "rotate(90deg)" : "rotate(0deg)", lineHeight: 1 }}>&#9654;</span>
+                    <span style={{ fontFamily: "var(--font-data)", fontSize: 16, fontWeight: 600, color: "#111" }}>{fmtPeriod(t.period)}</span>
+                    <div style={{ display: "flex", gap: 8, marginLeft: 8 }}>
+                      {blines.length > 0 && <span style={{ fontSize: 11, color: "#999", background: "#f3f3f3", padding: "2px 6px", borderRadius: 2 }}>{blines.length} lines</span>}
+                      {moats.length > 0 && <span style={{ fontSize: 11, color: "#0D7A3E", background: "#f0f8f3", padding: "2px 6px", borderRadius: 2 }}>{moats.length} moats</span>}
+                      {products.length > 0 && <span style={{ fontSize: 11, color: "#666", background: "#f3f3f3", padding: "2px 6px", borderRadius: 2 }}>{products.length} products</span>}
+                    </div>
+                    <span style={{ marginLeft: "auto", fontFamily: "var(--font-data)", fontSize: 11, color: "#ccc" }}>
+                      {t.model && <>{t.model} · </>}{t.generated_at && daysAgo(t.generated_at)}
+                    </span>
+                  </button>
+
+                  {/* Collapsible body */}
+                  {isOpen && hasContent && (
+                    <div style={{ padding: "18px 20px" }}>
+                      {/* Business lines table */}
+                      {blines.length > 0 && (
+                        <div style={{ marginBottom: 20 }}>
+                          <div style={SSL}>Business Lines</div>
+                          <div className="co-fin-table-wrap">
+                            <table className="fin-table">
+                              <thead>
+                                <tr>
+                                  <th className="fin-th-label" style={{ width: 220 }}>Segment</th>
+                                  <th className="fin-th-label">Detail</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {blines.map((bl: any, bi: number) => (
+                                  <tr key={bi}>
+                                    <td className="fin-td-label" style={{ fontWeight: 500, fontSize: 14, color: "#222", verticalAlign: "top" }}>{bl.label}</td>
+                                    <td style={{ padding: "10px 14px", fontSize: 14, color: "#555", lineHeight: 1.7, borderBottom: "1px solid #f3f3f3" }}>{bl.detail}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Moats table */}
+                      {moats.length > 0 && (
+                        <div style={{ marginBottom: 20 }}>
+                          <div style={SSL}>Competitive Moats</div>
+                          <div className="co-fin-table-wrap">
+                            <table className="fin-table">
+                              <thead>
+                                <tr>
+                                  <th className="fin-th-label" style={{ width: 220 }}>Type</th>
+                                  <th className="fin-th-label">Evidence</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {moats.map((mc: any, mi: number) => (
+                                  <tr key={mi}>
+                                    <td className="fin-td-label" style={{ fontWeight: 600, fontSize: 14, color: "#0D7A3E", verticalAlign: "top" }}>
+                                      {humanizeMoat(mc.type ?? "")}
+                                    </td>
+                                    <td style={{ padding: "10px 14px", fontSize: 14, color: "#555", lineHeight: 1.7, borderBottom: "1px solid #f3f3f3" }}>{mc.detail}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Products table */}
+                      {products.length > 0 && (
+                        <div style={{ marginBottom: 20 }}>
+                          <div style={SSL}>Products & Platforms</div>
+                          <div className="co-fin-table-wrap">
+                            <table className="fin-table">
+                              <thead>
+                                <tr>
+                                  <th className="fin-th-label" style={{ width: 220 }}>Product</th>
+                                  <th className="fin-th-label">Detail</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {products.map((pm: any, pi: number) => (
+                                  <tr key={pi}>
+                                    <td className="fin-td-label" style={{ fontWeight: 500, fontSize: 14, color: "#222", verticalAlign: "top" }}>{pm.name}</td>
+                                    <td style={{ padding: "10px 14px", fontSize: 14, color: "#555", lineHeight: 1.7, borderBottom: "1px solid #f3f3f3" }}>{pm.detail}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Segments table */}
+                      {segments.length > 0 && (
+                        <div style={{ marginBottom: 20 }}>
+                          <div style={SSL}>Segment Signals</div>
+                          <div className="co-fin-table-wrap">
+                            <table className="fin-table">
+                              <thead>
+                                <tr>
+                                  <th className="fin-th-label" style={{ width: 220 }}>Signal</th>
+                                  <th className="fin-th-label">Detail</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {segments.map((sc: any, si: number) => (
+                                  <tr key={si}>
+                                    <td className="fin-td-label" style={{ fontWeight: 600, fontSize: 14, color: "#0B5EA8", verticalAlign: "top" }}>{sc.signal}</td>
+                                    <td style={{ padding: "10px 14px", fontSize: 14, color: "#555", lineHeight: 1.7, borderBottom: "1px solid #f3f3f3" }}>{sc.detail}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Geography table */}
+                      {geos.length > 0 && (
+                        <div>
+                          <div style={SSL}>Geography</div>
+                          <div className="co-fin-table-wrap">
+                            <table className="fin-table">
+                              <thead>
+                                <tr>
+                                  <th className="fin-th-label" style={{ width: 220 }}>Region</th>
+                                  <th className="fin-th-label">Detail</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {geos.map((gc: any, gci: number) => (
+                                  <tr key={gci}>
+                                    <td className="fin-td-label" style={{ fontWeight: 500, fontSize: 14, color: "#222", verticalAlign: "top" }}>{gc.region}</td>
+                                    <td style={{ padding: "10px 14px", fontSize: 14, color: "#555", lineHeight: 1.7, borderBottom: "1px solid #f3f3f3" }}>{gc.detail}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* ── News Wire ─────────────────────────────────── */}
+      {(newsTriage || (latestNews?.press_releases?.length > 0)) && (
+        <section style={{ marginBottom: 36 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
+            <h2 style={SH}>News</h2>
+            {newsTriage && (
+              <div style={{ display: "flex", gap: 8 }}>
+                {newsTriage.rerun_company && <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 2, background: "#fef3cd", color: "#8c5b00" }}>Flagged for Re-evaluation</span>}
+                {newsTriage.needs_bottleneck_review && <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 2, background: "#fde8e8", color: "#991b1b" }}>Bottleneck Review</span>}
+                {!newsTriage.rerun_company && !newsTriage.needs_bottleneck_review && <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 2, background: "#e6f4ea", color: "#065c2d" }}>No Action Needed</span>}
+              </div>
+            )}
+          </div>
+
+          {newsTriage?.summary && (
+            <p style={{ fontSize: 15, color: "#555", lineHeight: 1.7, margin: "0 0 18px", paddingBottom: 18, borderBottom: "1px solid #f0f0f0" }}>
+              {newsTriage.summary}
+            </p>
+          )}
+
+          {latestNews?.press_releases?.length > 0 && (
+            <div>
+              {latestNews.press_releases.slice(0, 10).map((pr: any, pi: number) => (
+                <div key={pi} style={{ display: "flex", alignItems: "baseline", gap: 14, padding: "9px 0", borderBottom: "1px solid #f5f5f5" }}>
+                  <span style={{ fontFamily: "var(--font-data)", fontSize: 12, color: "#bbb", whiteSpace: "nowrap", minWidth: 75 }}>
+                    {pr.publishedDate?.slice(5, 10) ?? pr.date?.slice(5, 10) ?? ""}
+                  </span>
+                  <span style={{ fontSize: 14, color: "#444", lineHeight: 1.5 }}>{pr.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       )}
     </div>
   );

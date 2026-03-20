@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { OperatorShell } from "@/components/operator/OperatorShell";
 import { getOperatorSession } from "@/lib/operator-session";
+import { OperatorSWRProvider } from "@/lib/hooks/swr-config";
 
 export default async function OperatorShellLayout({
   children,
@@ -13,6 +14,8 @@ export default async function OperatorShellLayout({
   }
 
   return (
-    <OperatorShell operatorEmail={session.email}>{children}</OperatorShell>
+    <OperatorSWRProvider>
+      <OperatorShell operatorEmail={session.email}>{children}</OperatorShell>
+    </OperatorSWRProvider>
   );
 }

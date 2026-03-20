@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createChart, ColorType, AreaSeries, HistogramSeries, type IChartApi, type ISeriesApi } from "lightweight-charts";
+import { useStockCandles } from "@/lib/hooks/use-operator";
 
 type Candle = {
   date: string;
@@ -24,17 +25,6 @@ function toChartTime(date: string) {
   return date.split(" ")[0].split("T")[0];
 }
 
-async function fetchCandles(ticker: string, range: Range) {
-  const res = await fetch(
-    `/api/companies/${encodeURIComponent(ticker)}/chart?range=${range}`,
-    { cache: "no-store" },
-  );
-  if (!res.ok) return [];
-  const data = await res.json();
-  const raw = (data.candles ?? []) as Candle[];
-  return [...raw].sort((a, b) => a.date.localeCompare(b.date));
-}
-
 const CCY_SYMBOLS: Record<string, string> = {
   USD: "$", EUR: "€", GBP: "£", JPY: "¥", CNY: "¥", KRW: "₩",
   TWD: "NT$", HKD: "HK$", CAD: "C$", AUD: "A$", CHF: "CHF",
@@ -51,16 +41,17 @@ function formatPrice(price: number, ccy: string): string {
   return `${sym}${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function StockChart({ ticker, currency = "USD" }: { ticker: string; currency?: string }) {
+export function StockChart({ ticker, currency = "USD", onDataChange }: { ticker: string; currency?: string; onDataChange?: (lastPrice: number | null, changePct: number | null) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const areaRef = useRef<ISeriesApi<"Area"> | null>(null);
   const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
 
   const [range, setRange] = useState<Range>("1Y");
-  const [loading, setLoading] = useState(true);
   const [changePct, setChangePct] = useState<number | null>(null);
   const [empty, setEmpty] = useState(false);
+
+  const { data: candles, isLoading: swrLoading } = useStockCandles(ticker, range);
 
   // Create chart + initial load
   useEffect(() => {
@@ -138,61 +129,28 @@ export function StockChart({ ticker, currency = "USD" }: { ticker: string; curre
       areaRef.current = null;
       volRef.current = null;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load data on range/ticker change
+  // Apply SWR candle data to chart whenever it changes
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
+    const area = areaRef.current;
+    const vol = volRef.current;
+    const chart = chartRef.current;
+    if (!area || !vol || !chart || !candles) return;
+
+    if (candles.length === 0) {
+      area.setData([]);
+      vol.setData([]);
+      setChangePct(null);
+      setEmpty(true);
+      return;
+    }
+
     setEmpty(false);
-    setChangePct(null);
-
-    fetchCandles(ticker, range).then((candles) => {
-      if (cancelled) return;
-
-      const area = areaRef.current;
-      const vol = volRef.current;
-      const chart = chartRef.current;
-
-      if (!area || !vol || !chart) {
-        // Chart not ready yet — retry once after a tick
-        requestAnimationFrame(() => {
-          if (cancelled) return;
-          const a2 = areaRef.current;
-          const v2 = volRef.current;
-          const c2 = chartRef.current;
-          if (!a2 || !v2 || !c2) { setLoading(false); return; }
-          applyData(candles, a2, v2, c2, setChangePct, setEmpty);
-          setLoading(false);
-        });
-        return;
-      }
-
-      applyData(candles, area, vol, chart, setChangePct, setEmpty);
-      setLoading(false);
-    }).catch(() => {
-      if (!cancelled) { setLoading(false); setEmpty(true); }
-    });
-
-    return () => { cancelled = true; };
-  }, [range, ticker]);
-
-  // Auto-poll every 60s while mounted
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const area = areaRef.current;
-      const vol = volRef.current;
-      const chart = chartRef.current;
-      if (!area || !vol || !chart) return;
-
-      fetchCandles(ticker, range).then((candles) => {
-        if (!areaRef.current || !volRef.current || !chartRef.current) return;
-        applyData(candles, areaRef.current, volRef.current, chartRef.current, setChangePct, setEmpty);
-      }).catch(() => {});
-    }, 60000);
-
-    return () => clearInterval(interval);
-  }, [range, ticker]);
+    applyData(candles, area, vol, chart, setChangePct, setEmpty, onDataChange);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candles]);
 
   const isUp = changePct != null && changePct >= 0;
 
@@ -223,7 +181,7 @@ export function StockChart({ ticker, currency = "USD" }: { ticker: string; curre
       <div
         ref={containerRef}
         className="sc-canvas"
-        style={{ opacity: loading ? 0.4 : 1, transition: "opacity 0.15s" }}
+        style={{ opacity: swrLoading ? 0.4 : 1, transition: "opacity 0.15s" }}
       />
     </div>
   );
@@ -236,12 +194,14 @@ function applyData(
   chart: IChartApi,
   setChangePct: (v: number | null) => void,
   setEmpty: (v: boolean) => void,
+  onDataChange?: (lastPrice: number | null, changePct: number | null) => void,
 ) {
   if (!candles.length) {
     area.setData([]);
     vol.setData([]);
     setChangePct(null);
     setEmpty(true);
+    // Don't call onDataChange — keep last known price in header
     return;
   }
 
@@ -266,5 +226,7 @@ function applyData(
 
   const first = candles[0].close;
   const last = candles[candles.length - 1].close;
-  setChangePct(first ? ((last - first) / first) * 100 : null);
+  const pct = first ? ((last - first) / first) * 100 : null;
+  setChangePct(pct);
+  onDataChange?.(last, pct);
 }

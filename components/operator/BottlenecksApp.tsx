@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useBottlenecks, useBottleneckDecisions } from "@/lib/hooks/use-operator";
 
 type BottleneckItem = {
   node_id: string;
@@ -58,39 +59,15 @@ const SEVERITY_STYLE: Record<string, { bg: string; color: string }> = {
 
 export function BottlenecksApp() {
   const router = useRouter();
-  const [data, setData] = useState<BottlenecksResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, error, isLoading, mutate } = useBottlenecks<BottlenecksResponse>();
   const [tab, setTab] = useState<"active" | "history">("active");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [decisions, setDecisions] = useState<any[] | null>(null);
-  const [histLoading, setHistLoading] = useState(false);
+  const { data: decisionsData, isLoading: histLoading } = useBottleneckDecisions(tab === "history");
+  const decisions = decisionsData?.decisions ?? [];
   const [filter, setFilter] = useState<string>("all");
 
-  function load() {
-    setLoading(true);
-    fetch("/api/operator/bottlenecks/active", { cache: "no-store" })
-      .then((r) => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(() => { load(); }, []);
-
-  useEffect(() => {
-    if (tab === "history" && decisions === null) {
-      setHistLoading(true);
-      fetch("/api/operator/bottlenecks/decisions", { cache: "no-store" })
-        .then((r) => r.ok ? r.json() : null)
-        .then((d) => setDecisions(d?.decisions ?? []))
-        .catch(() => setDecisions([]))
-        .finally(() => setHistLoading(false));
-    }
-  }, [tab, decisions]);
-
-  if (loading) return <div className="op-loading" style={{ minHeight: 300 }}><span className="op-spinner" /></div>;
-  if (error) return <div className="op-error" style={{ margin: 20 }}>{error}</div>;
+  if (isLoading) return <div className="op-loading" style={{ minHeight: 300 }}><span className="op-spinner" /></div>;
+  if (error) return <div className="op-error" style={{ margin: 20 }}>{error.message}</div>;
   if (!data) return null;
 
   const { active_count, binding_count, by_status, by_severity } = data.summary;
@@ -106,7 +83,7 @@ export function BottlenecksApp() {
             {active_count} assessments · {binding_count} binding · {by_severity?.critical ?? 0} critical · Last assessed {timeAgo(data.summary.latest_assessed_at)}
           </p>
         </div>
-        <button type="button" onClick={load} className="fin-btn fin-btn--on" style={{ padding: "6px 16px" }}>Refresh</button>
+        <button type="button" onClick={() => mutate()} className="fin-btn fin-btn--on" style={{ padding: "6px 16px" }}>Refresh</button>
       </div>
 
       {/* Pending reviews banner */}
@@ -149,7 +126,7 @@ export function BottlenecksApp() {
           Active ({items.length}{filter !== "all" ? ` ${humanize(filter)}` : ""})
         </button>
         <button type="button" onClick={() => setTab("history")} style={{ all: "unset", cursor: "pointer", padding: "8px 16px", fontSize: 13, fontWeight: tab === "history" ? 500 : 400, color: tab === "history" ? "#111" : "#999", borderBottom: tab === "history" ? "2px solid #0D7A3E" : "2px solid transparent" }}>
-          Decisions {decisions ? `(${decisions.length})` : ""}
+          Decisions {decisionsData ? `(${decisions.length})` : ""}
         </button>
       </div>
 
@@ -170,14 +147,15 @@ export function BottlenecksApp() {
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => {
-                const expanded = expandedId === item.node_id;
+              {items.map((item, idx) => {
+                const itemKey = `${item.node_id}-${idx}`;
+                const expanded = expandedId === itemKey;
                 const ss = STATUS_STYLE[item.status] ?? { bg: "#f3f3f3", color: "#666" };
                 const sv = SEVERITY_STYLE[item.severity] ?? { bg: "#f3f3f3", color: "#666" };
 
                 return (
-                  <React.Fragment key={item.node_id}>
-                    <tr onClick={() => setExpandedId(expanded ? null : item.node_id)} style={{ cursor: "pointer", background: expanded ? "#fafafa" : undefined }}>
+                  <React.Fragment key={itemKey}>
+                    <tr onClick={() => setExpandedId(expanded ? null : itemKey)} style={{ cursor: "pointer", background: expanded ? "#fafafa" : undefined }}>
                       <td className="fin-td-label">
                         <div style={{ fontWeight: 500 }}>{item.node_name}</div>
                         <div style={{ fontFamily: "var(--font-data)", fontSize: 11, color: "#bbb" }}>{item.node_id}</div>
@@ -240,12 +218,12 @@ export function BottlenecksApp() {
       {tab === "history" && (
         <div>
           {histLoading && <div className="op-loading"><span className="op-spinner" /></div>}
-          {!histLoading && (decisions ?? []).length === 0 && (
+          {!histLoading && decisions.length === 0 && (
             <div style={{ border: "1px solid #e5e5e5", padding: "40px 20px", textAlign: "center", color: "#999" }}>
               No bottleneck decisions recorded yet. Assessments now require approval — decisions will appear here after the next enrichment cycle.
             </div>
           )}
-          {!histLoading && (decisions ?? []).length > 0 && (
+          {!histLoading && decisions.length > 0 && (
             <div className="co-fin-table-wrap">
               <table className="fin-table">
                 <thead>
@@ -258,7 +236,7 @@ export function BottlenecksApp() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(decisions ?? []).map((d: any) => (
+                  {decisions.map((d: any) => (
                     <tr key={d.entry_id} style={{ cursor: "pointer" }} onClick={() => router.push(`/operator/world?layer=${d.layer_id ?? ""}&node=${d.node_id}`)}>
                       <td className="fin-td-label">
                         <div style={{ fontWeight: 500 }}>{d.node_name ?? d.node_id}</div>
